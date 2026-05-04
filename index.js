@@ -1,90 +1,99 @@
 const express = require("express");
-
 const app = express();
 
-// ============================
-// CONFIGURAÇÃO DOS ATIVOS (SUA PLANILHA)
-// ============================
+// =============================
+// CONFIG IGUAL SUA PLANILHA
+// =============================
 const ativos = [
+
+  // RISCO (se subir = mercado positivo)
   { nome: "Minério de Ferro", tipo: "risco", min: -0.003, max: 0.003 },
-  { nome: "S&P 500 VIX", tipo: "protecao", min: -0.005, max: 0.005 },
-  { nome: "USD/BRL", tipo: "protecao", min: -0.001, max: 0.001 },
   { nome: "Petróleo WTI", tipo: "risco", min: -0.001, max: 0.001 },
   { nome: "Nasdaq", tipo: "risco", min: -0.001, max: 0.001 },
-  { nome: "DXY", tipo: "protecao", min: -0.001, max: 0.001 }
+
+  // PROTEÇÃO (se subir = mercado negativo)
+  { nome: "VIX", tipo: "protecao", min: -0.005, max: 0.005 },
+  { nome: "DXY", tipo: "protecao", min: -0.001, max: 0.001 },
+  { nome: "USD/BRL", tipo: "protecao", min: -0.001, max: 0.001 }
+
 ];
 
 let historico = [];
 
-// ============================
-// SIMULAÇÃO (ESTÁVEL)
-// ============================
+// =============================
+// SIMULAÇÃO (estável)
+// =============================
 function gerarValor() {
   return (Math.random() * 0.02 - 0.01);
 }
 
-// ============================
-// LÓGICA IGUAL VBA
-// ============================
+// =============================
+// LÓGICA IGUAL VBA (CORRIGIDA)
+// =============================
 function calcularSinal(valor, min, max, tipo) {
+
+  // neutro
   if (valor >= min && valor <= max) return "n";
 
+  // =============================
+  // RISCO
+  // =============================
   if (tipo === "risco") {
-    return valor > max ? "-" : "+";
-  } else {
-    return valor > max ? "+" : "-";
+    if (valor > max) return "+";   // sobe = positivo
+    return "-";                    // cai = negativo
+  }
+
+  // =============================
+  // PROTEÇÃO (invertido)
+  // =============================
+  if (tipo === "protecao") {
+    if (valor > max) return "-";   // sobe = mercado ruim
+    return "+";                    // cai = mercado bom
   }
 }
 
-// ============================
+// =============================
 // ATUALIZAÇÃO
-// ============================
+// =============================
 function atualizar() {
-  try {
-    let snapshot = [];
-    let forca = 0;
+  let snapshot = [];
+  let forca = 0;
 
-    ativos.forEach(a => {
-      const valor = gerarValor();
-      const sinal = calcularSinal(valor, a.min, a.max, a.tipo);
+  ativos.forEach(a => {
+    const valor = gerarValor();
+    const sinal = calcularSinal(valor, a.min, a.max, a.tipo);
 
-      snapshot.push({
-        nome: a.nome,
-        valor,
-        sinal
-      });
-
-      if (sinal === "+") forca++;
-      if (sinal === "-") forca--;
+    snapshot.push({
+      nome: a.nome,
+      valor,
+      sinal
     });
 
-    historico.push({
-      data: new Date(),
-      ativos: snapshot,
-      forca
-    });
+    if (sinal === "+") forca++;
+    if (sinal === "-") forca--;
+  });
 
-    if (historico.length > 300) historico.shift();
+  historico.push({
+    data: new Date(),
+    ativos: snapshot,
+    forca
+  });
 
-  } catch (e) {
-    console.log("Erro:", e.message);
-  }
+  if (historico.length > 300) historico.shift();
 }
 
 // roda a cada 5 min
 setInterval(atualizar, 300000);
 atualizar();
 
-// ============================
-// FRONT COMPLETO (DASHBOARD)
-// ============================
+// =============================
+// FRONT PROFISSIONAL
+// =============================
 app.get("/", (req, res) => {
-  if (!historico.length) return res.send("Carregando...");
 
   const atual = historico[historico.length - 1];
 
-  // gráfico simples (histórico)
-  const grafico = historico.map(h => h.forca).join(",");
+  const grafico = historico.map(h => h.forca);
 
   res.send(`
   <html>
@@ -102,28 +111,16 @@ app.get("/", (req, res) => {
 
       h1 {
         text-align: center;
-        font-size: 36px;
-      }
-
-      .card {
-        background: #1a1a1a;
-        padding: 15px;
-        border-radius: 10px;
-        margin-bottom: 20px;
       }
 
       table {
         width: 100%;
-        border-collapse: collapse;
+        margin-top: 20px;
       }
 
       th, td {
         padding: 10px;
         text-align: center;
-      }
-
-      th {
-        background: #222;
       }
 
       .positivo { color: #00ff88; }
@@ -137,47 +134,39 @@ app.get("/", (req, res) => {
 
     <h1>📊 Força do Mercado: ${atual.forca}</h1>
 
-    <div class="card">
-      <h2>Ativos</h2>
-      <table>
+    <table border="1">
+      <tr>
+        <th>Ativo</th>
+        <th>Variação</th>
+        <th>Sinal</th>
+      </tr>
+
+      ${atual.ativos.map(a => {
+        let classe =
+          a.sinal === "+" ? "positivo" :
+          a.sinal === "-" ? "negativo" :
+          "neutro";
+
+        return `
         <tr>
-          <th>Ativo</th>
-          <th>Variação</th>
-          <th>Sinal</th>
-        </tr>
+          <td>${a.nome}</td>
+          <td>${(a.valor * 100).toFixed(2)}%</td>
+          <td class="${classe}">${a.sinal}</td>
+        </tr>`;
+      }).join("")}
 
-        ${atual.ativos.map(a => {
-          let classe =
-            a.sinal === "+" ? "positivo" :
-            a.sinal === "-" ? "negativo" :
-            "neutro";
+    </table>
 
-          return `
-          <tr>
-            <td>${a.nome}</td>
-            <td>${(a.valor * 100).toFixed(2)}%</td>
-            <td class="${classe}">${a.sinal}</td>
-          </tr>`;
-        }).join("")}
-
-      </table>
-    </div>
-
-    <div class="card">
-      <h2>Histórico da Força</h2>
-      <canvas id="grafico"></canvas>
-    </div>
+    <canvas id="grafico"></canvas>
 
     <script>
-      const ctx = document.getElementById('grafico');
-
-      new Chart(ctx, {
+      new Chart(document.getElementById('grafico'), {
         type: 'line',
         data: {
-          labels: [${historico.map((_, i) => i).join(",")}],
+          labels: ${JSON.stringify(grafico.map((_, i) => i))},
           datasets: [{
             label: 'Força',
-            data: [${grafico}],
+            data: ${JSON.stringify(grafico)},
             borderWidth: 2
           }]
         }
@@ -189,7 +178,7 @@ app.get("/", (req, res) => {
   `);
 });
 
-// ============================
+// =============================
 app.listen(process.env.PORT || 3000, () => {
-  console.log("Servidor rodando");
+  console.log("Rodando...");
 });
