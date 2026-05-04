@@ -1,174 +1,152 @@
 const express = require("express");
+const axios = require("axios");
+
 const app = express();
+const PORT = process.env.PORT || 10000;
 
-// =============================
-// CONFIG IGUAL SUA PLANILHA
-// =============================
+// =========================
+// CONFIG ATIVOS (EXEMPLO)
+// =========================
 const ativos = [
-
-  // RISCO (se subir = mercado positivo)
-  { nome: "Minério de Ferro", tipo: "risco", min: -0.003, max: 0.003 },
-  { nome: "Petróleo WTI", tipo: "risco", min: -0.001, max: 0.001 },
-  { nome: "Nasdaq", tipo: "risco", min: -0.001, max: 0.001 },
-
-  // PROTEÇÃO (se subir = mercado negativo)
-  { nome: "VIX", tipo: "protecao", min: -0.005, max: 0.005 },
-  { nome: "DXY", tipo: "protecao", min: -0.001, max: 0.001 },
-  { nome: "USD/BRL", tipo: "protecao", min: -0.001, max: 0.001 }
-
+  { nome: "VIX", url: "https://api.mocki.io/v2/549a5d8b" },
+  { nome: "USD/BRL", url: "https://api.mocki.io/v2/549a5d8b" },
+  { nome: "WTI", url: "https://api.mocki.io/v2/549a5d8b" }
 ];
 
+// =========================
+// ESTADO
+// =========================
 let historico = [];
+let aceleracao = 0;
 
-// =============================
-// SIMULAÇÃO (estável)
-// =============================
-function gerarValor() {
-  return (Math.random() * 0.02 - 0.01);
+// =========================
+// FUNÇÕES
+// =========================
+function classificar(variacao) {
+  if (variacao < -0.3) return "Alta";
+  if (variacao > 0.3) return "Queda";
+  return "Neutro";
 }
 
-// =============================
-// LÓGICA IGUAL VBA (CORRIGIDA)
-// =============================
-function calcularSinal(valor, min, max, tipo) {
-
-  // neutro
-  if (valor >= min && valor <= max) return "n";
-
-  // =============================
-  // RISCO
-  // =============================
-  if (tipo === "risco") {
-    if (valor > max) return "+";   // sobe = positivo
-    return "-";                    // cai = negativo
-  }
-
-  // =============================
-  // PROTEÇÃO (invertido)
-  // =============================
-  if (tipo === "protecao") {
-    if (valor > max) return "-";   // sobe = mercado ruim
-    return "+";                    // cai = mercado bom
-  }
+// MOCK (depois conectamos Investing real)
+function gerarVariacaoFake() {
+  return (Math.random() * 2 - 1).toFixed(2);
 }
 
-// =============================
-// ATUALIZAÇÃO
-// =============================
-function atualizar() {
-  let snapshot = [];
-  let forca = 0;
+// =========================
+// ATUALIZAÇÃO (CÉREBRO)
+// =========================
+function atualizarDados() {
+  let alta = 0;
+  let baixa = 0;
+  let neutro = 0;
 
   ativos.forEach(a => {
-    const valor = gerarValor();
-    const sinal = calcularSinal(valor, a.min, a.max, a.tipo);
+    const variacao = parseFloat(gerarVariacaoFake());
+    const direcao = classificar(variacao);
 
-    snapshot.push({
-      nome: a.nome,
-      valor,
-      sinal
-    });
-
-    if (sinal === "+") forca++;
-    if (sinal === "-") forca--;
+    if (direcao === "Alta") alta++;
+    if (direcao === "Queda") baixa++;
+    if (direcao === "Neutro") neutro++;
   });
+
+  const ab = alta - baixa;
+  aceleracao += ab;
 
   historico.push({
-    data: new Date(),
-    ativos: snapshot,
-    forca
+    tempo: new Date().toLocaleTimeString(),
+    alta,
+    baixa,
+    neutro,
+    ab,
+    aceleracao
   });
 
-  if (historico.length > 300) historico.shift();
+  if (historico.length > 100) historico.shift();
+
+  console.log("Atualizado:", { alta, baixa, ab, aceleracao });
 }
 
 // roda a cada 5 min
-setInterval(atualizar, 300000);
-atualizar();
+setInterval(atualizarDados, 300000);
+atualizarDados();
 
-// =============================
-// FRONT PROFISSIONAL
-// =============================
+// =========================
+// FRONT (GRÁFICO)
+// =========================
 app.get("/", (req, res) => {
-
-  const atual = historico[historico.length - 1];
-
-  const grafico = historico.map(h => h.forca);
-
   res.send(`
   <html>
   <head>
     <title>Monitor Profissional</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
     <style>
       body {
-        font-family: Arial;
         background: #0f0f0f;
-        color: #fff;
+        color: white;
+        font-family: Arial;
+        text-align: center;
         padding: 20px;
       }
-
-      h1 {
-        text-align: center;
+      canvas {
+        max-width: 900px;
+        margin-top: 30px;
       }
-
-      table {
-        width: 100%;
-        margin-top: 20px;
-      }
-
-      th, td {
-        padding: 10px;
-        text-align: center;
-      }
-
-      .positivo { color: #00ff88; }
-      .negativo { color: #ff4d4d; }
-      .neutro { color: #aaa; }
-
     </style>
   </head>
-
   <body>
 
-    <h1>📊 Força do Mercado: ${atual.forca}</h1>
-
-    <table border="1">
-      <tr>
-        <th>Ativo</th>
-        <th>Variação</th>
-        <th>Sinal</th>
-      </tr>
-
-      ${atual.ativos.map(a => {
-        let classe =
-          a.sinal === "+" ? "positivo" :
-          a.sinal === "-" ? "negativo" :
-          "neutro";
-
-        return `
-        <tr>
-          <td>${a.nome}</td>
-          <td>${(a.valor * 100).toFixed(2)}%</td>
-          <td class="${classe}">${a.sinal}</td>
-        </tr>`;
-      }).join("")}
-
-    </table>
+    <h1>📊 Monitor de Mercado</h1>
 
     <canvas id="grafico"></canvas>
 
     <script>
-      new Chart(document.getElementById('grafico'), {
-        type: 'line',
+      const dados = ${JSON.stringify(historico)};
+
+      const labels = dados.map(d => d.tempo);
+
+      const chart = new Chart(document.getElementById("grafico"), {
+        type: "line",
         data: {
-          labels: ${JSON.stringify(grafico.map((_, i) => i))},
-          datasets: [{
-            label: 'Força',
-            data: ${JSON.stringify(grafico)},
-            borderWidth: 2
-          }]
+          labels: labels,
+          datasets: [
+            {
+              label: "Alta (Verde)",
+              data: dados.map(d => d.alta),
+              borderColor: "green",
+              tension: 0.2
+            },
+            {
+              label: "Baixa (Vermelha)",
+              data: dados.map(d => d.baixa),
+              borderColor: "red",
+              tension: 0.2
+            },
+            {
+              label: "Força (Alta - Baixa)",
+              data: dados.map(d => d.ab),
+              borderColor: "cyan",
+              tension: 0.2
+            },
+            {
+              label: "Aceleração",
+              data: dados.map(d => d.aceleracao),
+              borderColor: "white",
+              tension: 0.2
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              labels: { color: "white" }
+            }
+          },
+          scales: {
+            x: { ticks: { color: "white" } },
+            y: { ticks: { color: "white" } }
+          }
         }
       });
     </script>
@@ -178,7 +156,9 @@ app.get("/", (req, res) => {
   `);
 });
 
-// =============================
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Rodando...");
+// =========================
+// START
+// =========================
+app.listen(PORT, () => {
+  console.log("Rodando na porta " + PORT);
 });
