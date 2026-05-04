@@ -1,85 +1,92 @@
 const express = require("express");
 const axios = require("axios");
-const cheerio = require("cheerio");
 
 const app = express();
 
 let historico = [];
 
-function calcularSinal(atual, anterior) {
-  const min = -0.001;
-  const max = 0.001;
+// ============================
+// CONFIG ATIVOS (igual planilha)
+// ============================
+const ativos = [
+  { nome: "Minério de Ferro", tipo: "risco", min: -0.003, max: 0.003 },
+  { nome: "S&P 500 VIX", tipo: "protecao", min: -0.005, max: 0.005 },
+  { nome: "USD/BRL", tipo: "protecao", min: -0.001, max: 0.001 },
+  { nome: "Petróleo WTI", tipo: "risco", min: -0.001, max: 0.001 }
+];
 
-  const dif = atual - anterior;
-
-  if (dif >= min && dif <= max) return "n";
-  if (dif > max) return "-";
-  return "+";
+// ============================
+// SIMULAÇÃO DADOS (depois trocamos por API real)
+// ============================
+function gerarValor() {
+  return (Math.random() * 0.02 - 0.01); // -1% a +1%
 }
 
-async function getMinerio() {
-  try {
-    const { data } = await axios.get("https://finance.sina.com.cn/futures/quotes/I0.shtml?from=wap");
-    const $ = cheerio.load(data);
+// ============================
+// LÓGICA IGUAL VBA
+// ============================
+function calcularSinal(valor, min, max, tipo) {
+  if (valor >= min && valor <= max) return "n";
 
-    const texto = $("span").filter((i, el) =>
-      $(el).text().includes("%")
-    ).first().text();
-
-    return parseFloat(texto.replace("%", "").replace(",", "."));
-  } catch {
-    return 0;
+  if (tipo === "risco") {
+    return valor > max ? "-" : "+";
+  } else {
+    return valor > max ? "+" : "-";
   }
 }
 
+// ============================
+// ATUALIZAÇÃO
+// ============================
 async function atualizar() {
   try {
-    const valor = await getMinerio();
+    let snapshot = [];
+    let forca = 0;
 
-    const anterior = historico.length
-      ? historico[historico.length - 1].valor
-      : valor;
+    ativos.forEach(a => {
+      const valor = gerarValor();
+      const sinal = calcularSinal(valor, a.min, a.max, a.tipo);
 
-    const sinal = calcularSinal(valor, anterior);
+      snapshot.push({
+        nome: a.nome,
+        valor,
+        sinal
+      });
 
-    historico.push({
-      valor,
-      sinal,
-      data: new Date()
+      if (sinal === "+") forca++;
+      if (sinal === "-") forca--;
     });
 
-    // Limite de histórico
-    if (historico.length > 200) {
-      historico.shift();
-    }
+    historico.push({
+      data: new Date(),
+      ativos: snapshot,
+      forca
+    });
 
-    console.log("Atualizado:", valor, sinal);
+    if (historico.length > 200) historico.shift();
+
+    console.log("Atualizado:", forca);
 
   } catch (erro) {
-    console.log("Erro na atualização:", erro.message);
+    console.log("Erro:", erro.message);
   }
 }
 
-// roda a cada 5 minutos
+// roda a cada 5 min
 setInterval(atualizar, 300000);
-
-// roda na inicialização
 atualizar();
 
+// ============================
+// FRONT
+// ============================
 app.get("/", (req, res) => {
-  let forca = 0;
+  if (historico.length === 0) {
+    return res.send("Carregando...");
+  }
 
-  historico.forEach(d => {
-    if (d.sinal === "+") forca++;
-    if (d.sinal === "-") forca--;
-  });
+  const ultimo = historico[historico.length - 1];
 
-  const lista = historico.map(d => {
-    let cor = d.sinal === "+" ? "green" : d.sinal === "-" ? "red" : "gray";
-    return `<li style="color:${cor}; font-size:18px">${d.sinal}</li>`;
-  }).join("");
-
-res.send(`
+  res.send(`
   <html>
   <head>
     <title>Monitor de Mercado</title>
@@ -89,61 +96,72 @@ res.send(`
         background: #0f0f0f;
         color: #fff;
         padding: 30px;
-        text-align: center;
       }
 
       h1 {
+        text-align: center;
         font-size: 40px;
-        margin-bottom: 10px;
       }
 
-      h2 {
+      table {
+        width: 100%;
+        border-collapse: collapse;
         margin-top: 30px;
-        color: #ccc;
       }
 
-      .sinais {
-        display: flex;
-        justify-content: center;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-top: 20px;
+      th, td {
+        padding: 10px;
+        text-align: center;
       }
 
-      .sinal {
-        font-size: 22px;
-        font-weight: bold;
-        padding: 8px 12px;
-        border-radius: 6px;
+      th {
+        background: #222;
       }
 
-      .positivo { background: #003322; color: #00ff88; }
-      .negativo { background: #330000; color: #ff4d4d; }
-      .neutro   { background: #333; color: #aaa; }
+      tr:nth-child(even) {
+        background: #1a1a1a;
+      }
+
+      .positivo { color: #00ff88; }
+      .negativo { color: #ff4d4d; }
+      .neutro { color: #aaa; }
 
     </style>
   </head>
   <body>
 
-    <h1>📊 Força do Mercado: ${forca}</h1>
+    <h1>📊 Força do Mercado: ${ultimo.forca}</h1>
 
-    <h2>Últimos sinais</h2>
+    <table>
+      <tr>
+        <th>Ativo</th>
+        <th>Variação</th>
+        <th>Sinal</th>
+      </tr>
 
-    <div class="sinais">
-      ${historico.map(d => {
+      ${ultimo.ativos.map(a => {
         let classe =
-          d.sinal === "+" ? "positivo" :
-          d.sinal === "-" ? "negativo" :
+          a.sinal === "+" ? "positivo" :
+          a.sinal === "-" ? "negativo" :
           "neutro";
 
-        return `<div class="sinal ${classe}">${d.sinal}</div>`;
+        return `
+          <tr>
+            <td>${a.nome}</td>
+            <td>${(a.valor * 100).toFixed(2)}%</td>
+            <td class="${classe}">${a.sinal}</td>
+          </tr>
+        `;
       }).join("")}
-    </div>
+
+    </table>
 
   </body>
   </html>
-`);
-  });
+  `);
+});
+
+// ============================
 app.listen(process.env.PORT || 3000, () => {
   console.log("Servidor rodando");
 });
