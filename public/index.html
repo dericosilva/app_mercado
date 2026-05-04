@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Trader App</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<canvas id="grafico"></canvas>
+
+<script>
+let dados = {
+  labels: [],
+  altas: [],
+  baixas: [],
+  forca: [],
+  aceleracao: []
+};
+
+const ctx = document.getElementById("grafico");
+
+const chart = new Chart(ctx, {
+  type: "line",
+  data: {
+    labels: dados.labels,
+    datasets: [
+      { label: "Altas", data: dados.altas, borderColor: "green" },
+      { label: "Baixas", data: dados.baixas, borderColor: "red" },
+      { label: "Força", data: dados.forca, borderColor: "blue" },
+      { label: "Aceleração", data: dados.aceleracao, borderColor: "orange" }
+    ]
+  }
+});
+
+async function atualizar() {
+  const res = await fetch("/dados");
+  const json = await res.json();
+
+  const d = json.resumo;
+
+  dados.labels.push(d.hora);
+  dados.altas.push(d.altas);
+  dados.baixas.push(d.baixas);
+  dados.forca.push(d.forca);
+  dados.aceleracao.push(d.aceleracao);
+
+  chart.update();
+}
+
+setInterval(atualizar, 60000);
+</script>
+
+</body>
+</html>
