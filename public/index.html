@@ -21,11 +21,17 @@
       margin: 10px;
       padding: 5px;
     }
+    #status {
+      margin-top: 10px;
+      color: yellow;
+    }
   </style>
 </head>
 <body>
 
-<h2>📊 Painel Macro (Força + Aceleração)</h2>
+<h2>📊 Painel Macro</h2>
+
+<div id="status">Carregando...</div>
 
 <label>Início:</label>
 <input type="time" id="inicio">
@@ -43,84 +49,108 @@ const API = "https://app-mercado-v1kt.onrender.com/historico"
 let chart
 
 async function carregar() {
-  const res = await fetch(API)
-  let dados = await res.json()
+  const status = document.getElementById("status")
 
-  const inicio = document.getElementById("inicio").value
-  const fim = document.getElementById("fim").value
+  try {
+    status.innerText = "Buscando dados..."
 
-  if (inicio && fim) {
-    dados = dados.filter(d => {
-      const hora = new Date(d.time).toTimeString().slice(0,5)
-      return hora >= inicio && hora <= fim
-    })
-  }
+    const res = await fetch(API)
 
-  const labels = dados.map(d => new Date(d.time).toLocaleTimeString())
+    if (!res.ok) {
+      throw new Error("Erro ao acessar API")
+    }
 
-  const altas = dados.map(d => d.alta)
-  const baixas = dados.map(d => d.baixa)
-  const forca = dados.map(d => d.forca)
-  const aceleracao = dados.map(d => d.aceleracao)
+    let dados = await res.json()
 
-  if (chart) chart.destroy()
+    console.log("DADOS:", dados)
 
-  const ctx = document.getElementById("grafico").getContext("2d")
+    if (!dados || dados.length === 0) {
+      status.innerText = "⚠️ Sem dados ainda (aguarde coleta)"
+      return
+    }
 
-  chart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels: labels,
-      datasets: [
-        {
-          label: "Altas",
-          data: altas,
-          borderColor: "green",
-          tension: 0.3
-        },
-        {
-          label: "Quedas",
-          data: baixas,
-          borderColor: "red",
-          tension: 0.3
-        },
-        {
-          label: "Força (A-B)",
-          data: forca,
-          borderColor: "cyan",
-          tension: 0.3
-        },
-        {
-          label: "Aceleração",
-          data: aceleracao,
-          borderColor: "yellow",
-          tension: 0.3
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: {
-          labels: { color: "white" }
-        }
+    status.innerText = `OK: ${dados.length} pontos carregados`
+
+    const inicio = document.getElementById("inicio").value
+    const fim = document.getElementById("fim").value
+
+    if (inicio && fim) {
+      dados = dados.filter(d => {
+        const hora = new Date(d.time).toTimeString().slice(0,5)
+        return hora >= inicio && hora <= fim
+      })
+    }
+
+    const labels = dados.map(d => new Date(d.time).toLocaleTimeString())
+
+    const altas = dados.map(d => d.alta)
+    const baixas = dados.map(d => d.baixa)
+    const forca = dados.map(d => d.forca)
+    const aceleracao = dados.map(d => d.aceleracao)
+
+    if (chart) chart.destroy()
+
+    const ctx = document.getElementById("grafico").getContext("2d")
+
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: "Altas",
+            data: altas,
+            borderColor: "green",
+            tension: 0.3
+          },
+          {
+            label: "Quedas",
+            data: baixas,
+            borderColor: "red",
+            tension: 0.3
+          },
+          {
+            label: "Força",
+            data: forca,
+            borderColor: "cyan",
+            tension: 0.3
+          },
+          {
+            label: "Aceleração",
+            data: aceleracao,
+            borderColor: "yellow",
+            tension: 0.3
+          }
+        ]
       },
-      scales: {
-        x: {
-          ticks: { color: "white" }
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            labels: { color: "white" }
+          }
         },
-        y: {
-          ticks: { color: "white" }
+        scales: {
+          x: {
+            ticks: { color: "white" }
+          },
+          y: {
+            ticks: { color: "white" }
+          }
         }
       }
-    }
-  })
+    })
+
+  } catch (err) {
+    console.error(err)
+    status.innerText = "❌ Erro: " + err.message
+  }
 }
 
-// 🔄 atualização automática
+// auto update
 setInterval(carregar, 60000)
 
-// 🚀 carregar ao abrir
+// iniciar
 carregar()
 </script>
 
