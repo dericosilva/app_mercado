@@ -1,164 +1,113 @@
-const express = require("express");
-const axios = require("axios");
+import express from "express";
+import axios from "axios";
+import cors from "cors";
+import fs from "fs";
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+app.use(cors());
+app.use(express.static("public"));
 
-// =========================
-// CONFIG ATIVOS (EXEMPLO)
-// =========================
+const API_KEY = process.env.API_KEY; // 🔒 seguro
+
+const PORT = process.env.PORT || 3000;
+
+// ===== ATIVOS =====
 const ativos = [
-  { nome: "VIX", url: "https://api.mocki.io/v2/549a5d8b" },
-  { nome: "USD/BRL", url: "https://api.mocki.io/v2/549a5d8b" },
-  { nome: "WTI", url: "https://api.mocki.io/v2/549a5d8b" }
+  { nome: "S&P 500", symbol: "SPX", tipo: "risco" },
+  { nome: "VIX", symbol: "VIX", tipo: "seguranca" },
+  { nome: "Petróleo", symbol: "WTI", tipo: "risco" },
+  { nome: "USD/BRL", symbol: "USD/BRL", tipo: "seguranca" }
 ];
 
-// =========================
-// ESTADO
-// =========================
-let historico = [];
-let aceleracao = 0;
-
-// =========================
-// FUNÇÕES
-// =========================
-function classificar(variacao) {
-  if (variacao < -0.3) return "Alta";
-  if (variacao > 0.3) return "Queda";
-  return "Neutro";
+// ===== PEGAR VARIAÇÃO =====
+async function pegarVariacao(symbol) {
+  try {
+    const url = `https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${API_KEY}`;
+    const { data } = await axios.get(url);
+    return parseFloat(data.percent_change) || 0;
+  } catch {
+    return 0;
+  }
 }
 
-// MOCK (depois conectamos Investing real)
-function gerarVariacaoFake() {
-  return (Math.random() * 2 - 1).toFixed(2);
+// ===== CLASSIFICAÇÃO =====
+function classificar(valor, tipo) {
+  if (tipo === "risco") {
+    if (valor < -0.3) return "Alta";
+    if (valor > 0.3) return "Queda";
+    return "Neutro";
+  } else {
+    if (valor < -0.3) return "Queda";
+    if (valor > 0.3) return "Alta";
+    return "Neutro";
+  }
 }
 
-// =========================
-// ATUALIZAÇÃO (CÉREBRO)
-// =========================
-function atualizarDados() {
-  let alta = 0;
-  let baixa = 0;
-  let neutro = 0;
+// ===== HISTÓRICO =====
+function salvar(dado) {
+  const path = "historico.json";
+  let hist = [];
 
-  ativos.forEach(a => {
-    const variacao = parseFloat(gerarVariacaoFake());
-    const direcao = classificar(variacao);
+  if (fs.existsSync(path)) {
+    hist = JSON.parse(fs.readFileSync(path));
+  }
 
-    if (direcao === "Alta") alta++;
-    if (direcao === "Queda") baixa++;
-    if (direcao === "Neutro") neutro++;
-  });
+  hist.push(dado);
 
-  const ab = alta - baixa;
-  aceleracao += ab;
+  if (hist.length > 500) hist.shift();
 
-  historico.push({
-    tempo: new Date().toLocaleTimeString(),
-    alta,
-    baixa,
-    neutro,
-    ab,
+  fs.writeFileSync(path, JSON.stringify(hist, null, 2));
+}
+
+// ===== PEGAR HISTÓRICO =====
+function getHistorico() {
+  if (!fs.existsSync("historico.json")) return [];
+  return JSON.parse(fs.readFileSync("historico.json"));
+}
+
+// ===== ROTA PRINCIPAL =====
+app.get("/dados", async (req, res) => {
+  let altas = 0;
+  let baixas = 0;
+  let neutros = 0;
+
+  let lista = [];
+
+  for (let ativo of ativos) {
+    const variacao = await pegarVariacao(ativo.symbol);
+    const sinal = classificar(variacao, ativo.tipo);
+
+    if (sinal === "Alta") altas++;
+    else if (sinal === "Queda") baixas++;
+    else neutros++;
+
+    lista.push({ nome: ativo.nome, variacao, sinal });
+  }
+
+  const forca = altas - baixas;
+
+  const historico = getHistorico();
+  const ultimaAceleracao = historico.length > 0 ? historico[historico.length - 1].aceleracao : 0;
+
+  const aceleracao = ultimaAceleracao + forca;
+
+  const dado = {
+    hora: new Date().toLocaleTimeString(),
+    altas,
+    baixas,
+    neutros,
+    forca,
     aceleracao
-  });
+  };
 
-  if (historico.length > 100) historico.shift();
+  salvar(dado);
 
-  console.log("Atualizado:", { alta, baixa, ab, aceleracao });
-}
-
-// roda a cada 5 min
-setInterval(atualizarDados, 300000);
-atualizarDados();
-
-// =========================
-// FRONT (GRÁFICO)
-// =========================
-app.get("/", (req, res) => {
-  res.send(`
-  <html>
-  <head>
-    <title>Monitor Profissional</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-      body {
-        background: #0f0f0f;
-        color: white;
-        font-family: Arial;
-        text-align: center;
-        padding: 20px;
-      }
-      canvas {
-        max-width: 900px;
-        margin-top: 30px;
-      }
-    </style>
-  </head>
-  <body>
-
-    <h1>📊 Monitor de Mercado</h1>
-
-    <canvas id="grafico"></canvas>
-
-    <script>
-      const dados = ${JSON.stringify(historico)};
-
-      const labels = dados.map(d => d.tempo);
-
-      const chart = new Chart(document.getElementById("grafico"), {
-        type: "line",
-        data: {
-          labels: labels,
-          datasets: [
-            {
-              label: "Alta (Verde)",
-              data: dados.map(d => d.alta),
-              borderColor: "green",
-              tension: 0.2
-            },
-            {
-              label: "Baixa (Vermelha)",
-              data: dados.map(d => d.baixa),
-              borderColor: "red",
-              tension: 0.2
-            },
-            {
-              label: "Força (Alta - Baixa)",
-              data: dados.map(d => d.ab),
-              borderColor: "cyan",
-              tension: 0.2
-            },
-            {
-              label: "Aceleração",
-              data: dados.map(d => d.aceleracao),
-              borderColor: "white",
-              tension: 0.2
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            legend: {
-              labels: { color: "white" }
-            }
-          },
-          scales: {
-            x: { ticks: { color: "white" } },
-            y: { ticks: { color: "white" } }
-          }
-        }
-      });
-    </script>
-
-  </body>
-  </html>
-  `);
+  res.json({ resumo: dado, ativos: lista });
 });
 
-// =========================
-// START
-// =========================
-app.listen(PORT, () => {
-  console.log("Rodando na porta " + PORT);
+// ===== HISTÓRICO =====
+app.get("/historico", (req, res) => {
+  res.json(getHistorico());
 });
+
+app.listen(PORT, () => console.log("Servidor rodando"));
