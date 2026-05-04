@@ -32,20 +32,6 @@ async function getMinerio() {
   }
 }
 
-async function atualizar() {
-  const valor = await getMinerio();
-
-  const anterior = historico.length ? historico.at(-1).valor : valor;
-  const sinal = calcularSinal(valor, anterior);
-
-  historico.push({ valor, sinal, data: new Date() });
-
-  if (historico.length > 200) historico.shift();
-}
-
-setInterval(atualizar, 300000);
-atualizar();
-
 app.get("/", (req, res) => {
   let forca = 0;
 
@@ -54,12 +40,29 @@ app.get("/", (req, res) => {
     if (d.sinal === "-") forca--;
   });
 
+  const lista = historico.map(d => {
+    let cor = d.sinal === "+" ? "green" : d.sinal === "-" ? "red" : "gray";
+    return `<li style="color:${cor}; font-size:18px">${d.sinal}</li>`;
+  }).join("");
+
   res.send(`
-    <h1>Força: ${forca}</h1>
-    <ul>
-      ${historico.map(d => `<li>${d.sinal}</li>`).join("")}
-    </ul>
+    <html>
+    <head>
+      <title>Monitor de Mercado</title>
+      <style>
+        body { font-family: Arial; padding: 20px; background: #111; color: #fff; }
+        h1 { font-size: 28px; }
+        ul { list-style: none; padding: 0; }
+      </style>
+    </head>
+    <body>
+
+      <h1>📊 Força do Mercado: ${forca}</h1>
+
+      <h2>Últimos sinais</h2>
+      <ul>${lista}</ul>
+
+    </body>
+    </html>
   `);
 });
-
-app.listen(process.env.PORT || 3000);
