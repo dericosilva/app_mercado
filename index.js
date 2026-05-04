@@ -1,113 +1,147 @@
-import express from "express";
-import axios from "axios";
-import cors from "cors";
-import fs from "fs";
+import express from "express"
+import axios from "axios"
+import fs from "fs"
+import cors from "cors"
 
-const app = express();
-app.use(cors());
-app.use(express.static("public"));
+const app = express()
+app.use(cors())
 
-const API_KEY = process.env.API_KEY; // 🔒 seguro
+const PORT = process.env.PORT || 3000
 
-const PORT = process.env.PORT || 3000;
+// 🔑 SUA API KEY
+const API_KEY = "ef0aaaf916ba40678dc81ce4ae0ab0e0"
 
-// ===== ATIVOS =====
+// 📊 ATIVOS (exemplo - você pode expandir depois)
 const ativos = [
-  { nome: "S&P 500", symbol: "SPX", tipo: "risco" },
-  { nome: "VIX", symbol: "VIX", tipo: "seguranca" },
-  { nome: "Petróleo", symbol: "WTI", tipo: "risco" },
-  { nome: "USD/BRL", symbol: "USD/BRL", tipo: "seguranca" }
-];
+  "PETR4.SA",
+  "VALE3.SA",
+  "ITUB4.SA",
+  "BBDC4.SA",
+  "WIN$N",
+  "WDO$N"
+]
 
-// ===== PEGAR VARIAÇÃO =====
-async function pegarVariacao(symbol) {
+// 🧠 HISTÓRICO
+let historico = []
+
+// 📂 carregar histórico salvo
+if (fs.existsSync("historico.json")) {
+  historico = JSON.parse(fs.readFileSync("historico.json"))
+}
+
+// 💾 salvar histórico
+function salvarHistorico() {
+  fs.writeFileSync("historico.json", JSON.stringify(historico, null, 2))
+}
+
+// 🔍 classificar ativo (igual sua lógica do Excel)
+function classificar(variacao) {
+  if (variacao <= -0.3) return "Alta"
+  if (variacao >= 0.3) return "Queda"
+  return "Neutro"
+}
+
+// 📡 buscar dados de um ativo
+async function buscarAtivo(symbol) {
   try {
-    const url = `https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${API_KEY}`;
-    const { data } = await axios.get(url);
-    return parseFloat(data.percent_change) || 0;
-  } catch {
-    return 0;
+    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1min&outputsize=2&apikey=${API_KEY}`
+    const response = await axios.get(url)
+
+    const valores = response.data.values
+
+    if (!valores || valores.length < 2) return null
+
+    const atual = parseFloat(valores[0].close)
+    const anterior = parseFloat(valores[1].close)
+
+    const variacao = ((atual - anterior) / anterior) * 100
+
+    return classificar(variacao)
+
+  } catch (err) {
+    console.error("Erro ativo:", symbol)
+    return null
   }
 }
 
-// ===== CLASSIFICAÇÃO =====
-function classificar(valor, tipo) {
-  if (tipo === "risco") {
-    if (valor < -0.3) return "Alta";
-    if (valor > 0.3) return "Queda";
-    return "Neutro";
-  } else {
-    if (valor < -0.3) return "Queda";
-    if (valor > 0.3) return "Alta";
-    return "Neutro";
+// 🧠 coleta geral
+async function coletarDados() {
+  try {
+    let alta = 0
+    let baixa = 0
+    let neutro = 0
+
+    for (let ativo of ativos) {
+      const resultado = await buscarAtivo(ativo)
+
+      if (resultado === "Alta") alta++
+      else if (resultado === "Queda") baixa++
+      else neutro++
+    }
+
+    const forca = alta - baixa
+
+    let aceleracao = forca
+    if (historico.length > 0) {
+      aceleracao += historico[historico.length - 1].aceleracao
+    }
+
+    const dados = {
+      time: new Date().toISOString(),
+      alta,
+      baixa,
+      neutro,
+      forca,
+      aceleracao
+    }
+
+    historico.push(dados)
+
+    // limitar histórico
+    if (historico.length > 1000) {
+      historico.shift()
+    }
+
+    salvarHistorico()
+
+    console.log("OK:", dados)
+
+  } catch (err) {
+    console.error("Erro geral:", err.message)
   }
 }
 
-// ===== HISTÓRICO =====
-function salvar(dado) {
-  const path = "historico.json";
-  let hist = [];
+// ⏱️ roda automático (1 min)
+setInterval(coletarDados, 60000)
 
-  if (fs.existsSync(path)) {
-    hist = JSON.parse(fs.readFileSync(path));
-  }
+// 🚀 ENDPOINTS
 
-  hist.push(dado);
+// tempo real
+app.get("/dados", (req, res) => {
+  if (historico.length === 0) return res.json({})
+  res.json(historico[historico.length - 1])
+})
 
-  if (hist.length > 500) hist.shift();
-
-  fs.writeFileSync(path, JSON.stringify(hist, null, 2));
-}
-
-// ===== PEGAR HISTÓRICO =====
-function getHistorico() {
-  if (!fs.existsSync("historico.json")) return [];
-  return JSON.parse(fs.readFileSync("historico.json"));
-}
-
-// ===== ROTA PRINCIPAL =====
-app.get("/dados", async (req, res) => {
-  let altas = 0;
-  let baixas = 0;
-  let neutros = 0;
-
-  let lista = [];
-
-  for (let ativo of ativos) {
-    const variacao = await pegarVariacao(ativo.symbol);
-    const sinal = classificar(variacao, ativo.tipo);
-
-    if (sinal === "Alta") altas++;
-    else if (sinal === "Queda") baixas++;
-    else neutros++;
-
-    lista.push({ nome: ativo.nome, variacao, sinal });
-  }
-
-  const forca = altas - baixas;
-
-  const historico = getHistorico();
-  const ultimaAceleracao = historico.length > 0 ? historico[historico.length - 1].aceleracao : 0;
-
-  const aceleracao = ultimaAceleracao + forca;
-
-  const dado = {
-    hora: new Date().toLocaleTimeString(),
-    altas,
-    baixas,
-    neutros,
-    forca,
-    aceleracao
-  };
-
-  salvar(dado);
-
-  res.json({ resumo: dado, ativos: lista });
-});
-
-// ===== HISTÓRICO =====
+// histórico completo
 app.get("/historico", (req, res) => {
-  res.json(getHistorico());
-});
+  res.json(historico)
+})
 
-app.listen(PORT, () => console.log("Servidor rodando"));
+// 🔥 BACKFILL (últimos minutos)
+app.get("/backfill", async (req, res) => {
+  try {
+    const symbol = "PETR4.SA"
+
+    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1min&outputsize=100&apikey=${API_KEY}`
+    const response = await axios.get(url)
+
+    res.json(response.data.values)
+
+  } catch (err) {
+    res.status(500).json({ erro: "backfill falhou" })
+  }
+})
+
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`)
+})
