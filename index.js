@@ -11,14 +11,12 @@ const PORT = process.env.PORT || 3000
 // 🔑 SUA API KEY
 const API_KEY = "ef0aaaf916ba40678dc81ce4ae0ab0e0"
 
-// 📊 ATIVOS (exemplo - você pode expandir depois)
+// 📊 ATIVOS (você pode ajustar depois)
 const ativos = [
   "PETR4.SA",
   "VALE3.SA",
   "ITUB4.SA",
-  "BBDC4.SA",
-  "WIN$N",
-  "WDO$N"
+  "BBDC4.SA"
 ]
 
 // 🧠 HISTÓRICO
@@ -114,9 +112,21 @@ async function coletarDados() {
 // ⏱️ roda automático (1 min)
 setInterval(coletarDados, 60000)
 
-// 🚀 ENDPOINTS
+// 🚀 ROTAS
 
-// tempo real
+// rota principal (corrige erro /)
+app.get("/", (req, res) => {
+  res.json({
+    status: "ok",
+    endpoints: [
+      "/dados",
+      "/historico",
+      "/backfill"
+    ]
+  })
+})
+
+// último dado
 app.get("/dados", (req, res) => {
   if (historico.length === 0) return res.json({})
   res.json(historico[historico.length - 1])
@@ -127,7 +137,7 @@ app.get("/historico", (req, res) => {
   res.json(historico)
 })
 
-// 🔥 BACKFILL (últimos minutos)
+// 🔥 BACKFILL (últimos 100 minutos de um ativo base)
 app.get("/backfill", async (req, res) => {
   try {
     const symbol = "PETR4.SA"
