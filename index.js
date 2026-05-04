@@ -45,24 +45,68 @@ app.get("/", (req, res) => {
     return `<li style="color:${cor}; font-size:18px">${d.sinal}</li>`;
   }).join("");
 
-  res.send(`
-    <html>
-    <head>
-      <title>Monitor de Mercado</title>
-      <style>
-        body { font-family: Arial; padding: 20px; background: #111; color: #fff; }
-        h1 { font-size: 28px; }
-        ul { list-style: none; padding: 0; }
-      </style>
-    </head>
-    <body>
+res.send(`
+  <html>
+  <head>
+    <title>Monitor de Mercado</title>
+    <style>
+      body {
+        font-family: Arial;
+        background: #0f0f0f;
+        color: #fff;
+        padding: 30px;
+        text-align: center;
+      }
 
-      <h1>📊 Força do Mercado: ${forca}</h1>
+      h1 {
+        font-size: 40px;
+        margin-bottom: 10px;
+      }
 
-      <h2>Últimos sinais</h2>
-      <ul>${lista}</ul>
+      h2 {
+        margin-top: 30px;
+        color: #ccc;
+      }
 
-    </body>
-    </html>
-  `);
+      .sinais {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+
+      .sinal {
+        font-size: 22px;
+        font-weight: bold;
+        padding: 8px 12px;
+        border-radius: 6px;
+      }
+
+      .positivo { background: #003322; color: #00ff88; }
+      .negativo { background: #330000; color: #ff4d4d; }
+      .neutro   { background: #333; color: #aaa; }
+
+    </style>
+  </head>
+  <body>
+
+    <h1>📊 Força do Mercado: ${forca}</h1>
+
+    <h2>Últimos sinais</h2>
+
+    <div class="sinais">
+      ${historico.map(d => {
+        let classe =
+          d.sinal === "+" ? "positivo" :
+          d.sinal === "-" ? "negativo" :
+          "neutro";
+
+        return `<div class="sinal ${classe}">${d.sinal}</div>`;
+      }).join("")}
+    </div>
+
+  </body>
+  </html>
+`);
 });
