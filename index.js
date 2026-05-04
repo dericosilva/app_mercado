@@ -32,6 +32,40 @@ async function getMinerio() {
   }
 }
 
+async function atualizar() {
+  try {
+    const valor = await getMinerio();
+
+    const anterior = historico.length
+      ? historico[historico.length - 1].valor
+      : valor;
+
+    const sinal = calcularSinal(valor, anterior);
+
+    historico.push({
+      valor,
+      sinal,
+      data: new Date()
+    });
+
+    // Limite de histórico
+    if (historico.length > 200) {
+      historico.shift();
+    }
+
+    console.log("Atualizado:", valor, sinal);
+
+  } catch (erro) {
+    console.log("Erro na atualização:", erro.message);
+  }
+}
+
+// roda a cada 5 minutos
+setInterval(atualizar, 300000);
+
+// roda na inicialização
+atualizar();
+
 app.get("/", (req, res) => {
   let forca = 0;
 
@@ -109,4 +143,7 @@ res.send(`
   </body>
   </html>
 `);
+  });
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Servidor rodando");
 });
