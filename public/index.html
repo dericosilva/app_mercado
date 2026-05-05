@@ -2,8 +2,10 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <title>Painel Trader</title>
+  <title>App Mercado - WDO</title>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
     body {
       background: #0f172a;
@@ -11,147 +13,123 @@
       font-family: Arial;
       text-align: center;
     }
-    canvas {
-      background: #111827;
+
+    h1 {
       margin-top: 20px;
-      border-radius: 10px;
-      padding: 10px;
     }
-    input {
-      margin: 10px;
-      padding: 5px;
-    }
-    #status {
-      margin-top: 10px;
-      color: yellow;
+
+    canvas {
+      max-width: 95%;
+      margin-top: 20px;
     }
   </style>
 </head>
+
 <body>
 
-<h2>📊 Painel Macro</h2>
+<h1>📊 Mercado em Tempo Real</h1>
 
-<div id="status">Carregando...</div>
-
-<label>Início:</label>
-<input type="time" id="inicio">
-
-<label>Fim:</label>
-<input type="time" id="fim">
-
-<button onclick="carregar()">Filtrar</button>
-
-<canvas id="grafico" width="1000" height="400"></canvas>
+<canvas id="grafico"></canvas>
 
 <script>
-const API = "https://app-mercado-v1kt.onrender.com/historico"
+const URL = "https://app-mercado-v1kt.onrender.com/historico"
 
 let chart
 
-async function carregar() {
-  const status = document.getElementById("status")
-
+async function carregarDados() {
   try {
-    status.innerText = "Buscando dados..."
+    const res = await fetch(URL)
+    const data = await res.json()
 
-    const res = await fetch(API)
+    const labels = data.map(d => new Date(d.time).toLocaleTimeString())
 
-    if (!res.ok) {
-      throw new Error("Erro ao acessar API")
-    }
+    const alta = data.map(d => d.alta)
+    const baixa = data.map(d => d.baixa)
+    const forca = data.map(d => d.forca)
+    const aceleracao = data.map(d => d.aceleracao)
 
-    let dados = await res.json()
+    atualizarGrafico(labels, alta, baixa, forca, aceleracao)
 
-    console.log("DADOS:", dados)
-
-    if (!dados || dados.length === 0) {
-      status.innerText = "⚠️ Sem dados ainda (aguarde coleta)"
-      return
-    }
-
-    status.innerText = `OK: ${dados.length} pontos carregados`
-
-    const inicio = document.getElementById("inicio").value
-    const fim = document.getElementById("fim").value
-
-    if (inicio && fim) {
-      dados = dados.filter(d => {
-        const hora = new Date(d.time).toTimeString().slice(0,5)
-        return hora >= inicio && hora <= fim
-      })
-    }
-
-    const labels = dados.map(d => new Date(d.time).toLocaleTimeString())
-
-    const altas = dados.map(d => d.alta)
-    const baixas = dados.map(d => d.baixa)
-    const forca = dados.map(d => d.forca)
-    const aceleracao = dados.map(d => d.aceleracao)
-
-    if (chart) chart.destroy()
-
-    const ctx = document.getElementById("grafico").getContext("2d")
-
-    chart = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels: labels,
-        datasets: [
-          {
-            label: "Altas",
-            data: altas,
-            borderColor: "green",
-            tension: 0.3
-          },
-          {
-            label: "Quedas",
-            data: baixas,
-            borderColor: "red",
-            tension: 0.3
-          },
-          {
-            label: "Força",
-            data: forca,
-            borderColor: "cyan",
-            tension: 0.3
-          },
-          {
-            label: "Aceleração",
-            data: aceleracao,
-            borderColor: "yellow",
-            tension: 0.3
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: {
-            labels: { color: "white" }
-          }
-        },
-        scales: {
-          x: {
-            ticks: { color: "white" }
-          },
-          y: {
-            ticks: { color: "white" }
-          }
-        }
-      }
-    })
-
-  } catch (err) {
-    console.error(err)
-    status.innerText = "❌ Erro: " + err.message
+  } catch (e) {
+    console.log("Erro ao carregar:", e)
   }
 }
 
-// auto update
-setInterval(carregar, 60000)
+function atualizarGrafico(labels, alta, baixa, forca, aceleracao) {
 
-// iniciar
-carregar()
+  if (chart) {
+    chart.data.labels = labels
+    chart.data.datasets[0].data = alta
+    chart.data.datasets[1].data = baixa
+    chart.data.datasets[2].data = forca
+    chart.data.datasets[3].data = aceleracao
+    chart.update()
+    return
+  }
+
+  const ctx = document.getElementById("grafico").getContext("2d")
+
+  chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: "Alta",
+          data: alta,
+          borderWidth: 2,
+          tension: 0.2,
+          borderColor: "lime"
+        },
+        {
+          label: "Baixa",
+          data: baixa,
+          borderWidth: 2,
+          tension: 0.2,
+          borderColor: "red"
+        },
+        {
+          label: "Força (A-B)",
+          data: forca,
+          borderWidth: 2,
+          tension: 0.2,
+          borderColor: "cyan"
+        },
+        {
+          label: "Aceleração",
+          data: aceleracao,
+          borderWidth: 2,
+          tension: 0.2,
+          borderColor: "yellow"
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          labels: {
+            color: "white"
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: "white" }
+        },
+        y: {
+          ticks: { color: "white" }
+        }
+      }
+    }
+  })
+}
+
+// 🔄 Atualiza automático
+setInterval(carregarDados, 10000)
+
+// 🚀 Primeira carga
+carregarDados()
 </script>
 
 </body>
