@@ -1,90 +1,55 @@
 import express from "express"
-import axios from "axios"
-import fs from "fs"
 import cors from "cors"
+import axios from "axios"
 
 const app = express()
 app.use(cors())
 app.use(express.static("public"))
+
 const PORT = process.env.PORT || 3000
 
 // 🔑 SUA API KEY
 const API_KEY = "ef0aaaf916ba40678dc81ce4ae0ab0e0"
 
-// 📊 ATIVOS (você pode ajustar depois)
-const ativos = [
-  "PETR4.SA",
-  "VALE3.SA",
-  "ITUB4.SA",
-  "BBDC4.SA"
-]
-
-// 🧠 HISTÓRICO
+// 📊 HISTÓRICO EM MEMÓRIA
 let historico = []
 
-// 📂 carregar histórico salvo
-if (fs.existsSync("historico.json")) {
-  historico = JSON.parse(fs.readFileSync("historico.json"))
-}
+// 📈 VARIÁVEIS DE CONTROLE
+let ultimaForca = 0
+let ultimaAceleracao = 0
 
-// 💾 salvar histórico
-function salvarHistorico() {
-  fs.writeFileSync("historico.json", JSON.stringify(historico, null, 2))
-}
-
-// 🔍 classificar ativo (igual sua lógica do Excel)
-function classificar(variacao) {
-  if (variacao <= -0.3) return "Alta"
-  if (variacao >= 0.3) return "Queda"
-  return "Neutro"
-}
-
-// 📡 buscar dados de um ativo
-async function buscarAtivo(symbol) {
+// 🔄 BUSCA DADOS DO MERCADO (WDO via USD/BRL proxy)
+async function buscarDados() {
   try {
-    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1min&outputsize=2&apikey=${API_KEY}`
+    const url = `https://api.twelvedata.com/time_series?symbol=USD/BRL&interval=1min&apikey=${API_KEY}`
+    
     const response = await axios.get(url)
 
-    const valores = response.data.values
+    const dados = response.data.values?.[0]
 
-    if (!valores || valores.length < 2) return null
+    if (!dados) return null
 
-    const atual = parseFloat(valores[0].close)
-    const anterior = parseFloat(valores[1].close)
+    const open = parseFloat(dados.open)
+    const close = parseFloat(dados.close)
 
-    const variacao = ((atual - anterior) / anterior) * 100
-
-    return classificar(variacao)
-
-  } catch (err) {
-    console.error("Erro ativo:", symbol)
-    return null
-  }
-}
-
-// 🧠 coleta geral
-async function coletarDados() {
-  try {
     let alta = 0
     let baixa = 0
     let neutro = 0
 
-    for (let ativo of ativos) {
-      const resultado = await buscarAtivo(ativo)
+    if (close > open) alta = 1
+    else if (close < open) baixa = 1
+    else neutro = 1
 
-      if (resultado === "Alta") alta++
-      else if (resultado === "Queda") baixa++
-      else neutro++
-    }
+    // 🔥 FORÇA (igual Excel: Alta - Baixa)
+    let forca = alta - baixa
 
-    const forca = alta - baixa
+    // 🔥 ACELERAÇÃO (acumulado)
+    let aceleracao = ultimaAceleracao + forca
 
-    let aceleracao = forca
-    if (historico.length > 0) {
-      aceleracao += historico[historico.length - 1].aceleracao
-    }
+    ultimaForca = forca
+    ultimaAceleracao = aceleracao
 
-    const dados = {
+    const registro = {
       time: new Date().toISOString(),
       alta,
       baixa,
@@ -93,65 +58,51 @@ async function coletarDados() {
       aceleracao
     }
 
-    historico.push(dados)
+    historico.push(registro)
 
-    // limitar histórico
-    if (historico.length > 1000) {
-      historico.shift()
-    }
+    // mantém últimos 500 pontos
+    if (historico.length > 500) historico.shift()
 
-    salvarHistorico()
-
-    console.log("OK:", dados)
+    return registro
 
   } catch (err) {
-    console.error("Erro geral:", err.message)
+    console.log("Erro ao buscar dados:", err.message)
+    return null
   }
 }
 
-// ⏱️ roda automático (1 min)
-setInterval(coletarDados, 60000)
+// ⏱ COLETA AUTOMÁTICA (a cada 10 segundos)
+setInterval(buscarDados, 10000)
 
-// 🚀 ROTAS
-
-// rota principal (corrige erro /)
-app.get("/", (req, res) => {
-  res.json({
-    status: "ok",
-    endpoints: [
-      "/dados",
-      "/historico",
-      "/backfill"
-    ]
-  })
+// 📊 ENDPOINT TEMPO REAL
+app.get("/dados", async (req, res) => {
+  const dado = await buscarDados()
+  res.json(dado || {})
 })
 
-// último dado
-app.get("/dados", (req, res) => {
-  if (historico.length === 0) return res.json({})
-  res.json(historico[historico.length - 1])
-})
-
-// histórico completo
+// 📚 ENDPOINT HISTÓRICO
 app.get("/historico", (req, res) => {
   res.json(historico)
 })
 
-// 🔥 BACKFILL (últimos 100 minutos de um ativo base)
+// ⏪ BACKFILL (simula histórico inicial)
 app.get("/backfill", async (req, res) => {
-  try {
-    const symbol = "PETR4.SA"
+  historico = []
+  ultimaAceleracao = 0
 
-    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1min&outputsize=100&apikey=${API_KEY}`
-    const response = await axios.get(url)
-
-    res.json(response.data.values)
-
-  } catch (err) {
-    res.status(500).json({ erro: "backfill falhou" })
+  for (let i = 0; i < 50; i++) {
+    await buscarDados()
   }
+
+  res.json({ status: "backfill completo", total: historico.length })
 })
 
+// 🏠 ROOT
+app.get("/", (req, res) => {
+  res.sendFile(process.cwd() + "/public/index.html")
+})
+
+// 🚀 START
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`)
 })
