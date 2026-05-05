@@ -7,50 +7,61 @@ app.use(cors())
 app.use(express.static("public"))
 
 const PORT = process.env.PORT || 3000
-
-// 🔑 SUA API KEY
 const API_KEY = "ef0aaaf916ba40678dc81ce4ae0ab0e0"
 
-// 📊 HISTÓRICO EM MEMÓRIA
 let historico = []
-
-// 📈 VARIÁVEIS DE CONTROLE
-let ultimaForca = 0
 let ultimaAceleracao = 0
+let ultimoTimestamp = null
 
-// 🔄 BUSCA DADOS DO MERCADO (WDO via USD/BRL proxy)
+// 🔥 SIMULA MICRO MOVIMENTOS (igual Excel)
+function analisarCandle(open, close, high, low) {
+  const movimentos = 30 // granularidade (ajusta aqui se quiser)
+
+  let alta = 0
+  let baixa = 0
+  let neutro = 0
+
+  const range = high - low
+
+  for (let i = 0; i < movimentos; i++) {
+    const pontoAnterior = low + (range * i) / movimentos
+    const pontoAtual = low + (range * (i + 1)) / movimentos
+
+    if (pontoAtual > pontoAnterior) alta++
+    else if (pontoAtual < pontoAnterior) baixa++
+    else neutro++
+  }
+
+  return { alta, baixa, neutro }
+}
+
+// 🔄 BUSCA REAL (5 MIN)
 async function buscarDados() {
   try {
-    const url = `https://api.twelvedata.com/time_series?symbol=USD/BRL&interval=1min&apikey=${API_KEY}`
-    
-    const response = await axios.get(url)
+    const url = `https://api.twelvedata.com/time_series?symbol=USD/BRL&interval=5min&outputsize=1&apikey=${API_KEY}`
 
+    const response = await axios.get(url)
     const dados = response.data.values?.[0]
 
     if (!dados) return null
 
+    if (dados.datetime === ultimoTimestamp) return null
+    ultimoTimestamp = dados.datetime
+
     const open = parseFloat(dados.open)
     const close = parseFloat(dados.close)
+    const high = parseFloat(dados.high)
+    const low = parseFloat(dados.low)
 
-    let alta = 0
-    let baixa = 0
-    let neutro = 0
+    // 🔥 AQUI FICA FIEL AO EXCEL
+    const { alta, baixa, neutro } = analisarCandle(open, close, high, low)
 
-    if (close > open) alta = 1
-    else if (close < open) baixa = 1
-    else neutro = 1
-
-    // 🔥 FORÇA (igual Excel: Alta - Baixa)
-    let forca = alta - baixa
-
-    // 🔥 ACELERAÇÃO (acumulado)
-    let aceleracao = ultimaAceleracao + forca
-
-    ultimaForca = forca
+    const forca = alta - baixa
+    const aceleracao = ultimaAceleracao + forca
     ultimaAceleracao = aceleracao
 
     const registro = {
-      time: new Date().toISOString(),
+      time: dados.datetime,
       alta,
       baixa,
       neutro,
@@ -60,49 +71,45 @@ async function buscarDados() {
 
     historico.push(registro)
 
-    // mantém últimos 500 pontos
     if (historico.length > 500) historico.shift()
 
     return registro
 
   } catch (err) {
-    console.log("Erro ao buscar dados:", err.message)
+    console.log("Erro:", err.message)
     return null
   }
 }
 
-// ⏱ COLETA AUTOMÁTICA (a cada 10 segundos)
-setInterval(buscarDados, 10000)
+// ⏱ VERIFICA A CADA 1 MIN (mas só salva candle novo)
+setInterval(buscarDados, 60000)
 
-// 📊 ENDPOINT TEMPO REAL
+// 📊 ENDPOINTS
 app.get("/dados", async (req, res) => {
   const dado = await buscarDados()
   res.json(dado || {})
 })
 
-// 📚 ENDPOINT HISTÓRICO
 app.get("/historico", (req, res) => {
   res.json(historico)
 })
 
-// ⏪ BACKFILL (simula histórico inicial)
 app.get("/backfill", async (req, res) => {
   historico = []
   ultimaAceleracao = 0
 
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 100; i++) {
     await buscarDados()
   }
 
-  res.json({ status: "backfill completo", total: historico.length })
+  res.json({ status: "ok", total: historico.length })
 })
 
-// 🏠 ROOT
 app.get("/", (req, res) => {
   res.sendFile(process.cwd() + "/public/index.html")
 })
 
-// 🚀 START
 app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`)
+  console.log("Servidor rodando")
 })
+    
